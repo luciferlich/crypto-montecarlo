@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from PIL import Image
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="BinanceUS Crypto Simulator", layout="centered")
+st.set_page_config(page_title="KuCoin Crypto Simulator", layout="centered")
 
 # --- HEADER STYLE ---
 st.markdown("""
@@ -37,20 +37,20 @@ with col2:
 with col3:
     st.write("")
 
-st.title("📊 Binance.US Monte Carlo Return Simulator")
+st.title("📊 KuCoin Monte Carlo Return Simulator")
 
 # --- USER INPUT ---
 symbol_input = st.text_input("Enter Symbol (e.g. BTC/USDT, ETH/USDT)", "BTC/USDT").upper().strip()
 holding_days = st.slider("Holding Period (days)", 10, 180, 60)
 simulations = st.number_input("Number of Simulations", min_value=1000, max_value=100000, value=5000, step=1000)
 
-binance = ccxt.binanceus()
+kucoin = ccxt.kucoin()
 
 @st.cache_data(show_spinner=False)
-def get_binanceus_data(symbol):
+def get_kucoin_data(symbol):
     try:
-        since = binance.parse8601((datetime.utcnow() - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S"))
-        ohlcv = binance.fetch_ohlcv(symbol, timeframe='1d', since=since)
+        since = kucoin.parse8601((datetime.utcnow() - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S"))
+        ohlcv = kucoin.fetch_ohlcv(symbol, timeframe='1d', since=since)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
@@ -58,11 +58,10 @@ def get_binanceus_data(symbol):
         st.error(f"Error fetching data: {e}")
         return pd.DataFrame()
 
-# Check symbol
 @st.cache_data
 def is_symbol_supported(symbol):
     try:
-        markets = binance.load_markets()
+        markets = kucoin.load_markets()
         return symbol in markets
     except:
         return False
@@ -72,11 +71,11 @@ if not symbol_input:
     st.stop()
 
 if not is_symbol_supported(symbol_input):
-    st.error(f"❌ {symbol_input} is not supported on Binance.US.")
+    st.error(f"❌ {symbol_input} is not supported on KuCoin.")
     st.stop()
 
-st.write(f"⏳ Fetching 1 year of daily data for {symbol_input} from Binance.US...")
-data = get_binanceus_data(symbol_input)
+st.write(f"⏳ Fetching 1 year of daily data for {symbol_input} from KuCoin...")
+data = get_kucoin_data(symbol_input)
 
 if data.empty or len(data) < 30:
     st.error("❌ Not enough historical data found or invalid symbol. Try another one.")
