@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from PIL import Image
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Binance Crypto Simulator", layout="centered")
+st.set_page_config(page_title="BinanceUS Crypto Simulator", layout="centered")
 
 # --- HEADER STYLE ---
 st.markdown("""
@@ -37,17 +37,17 @@ with col2:
 with col3:
     st.write("")
 
-st.title("📊 Binance Monte Carlo Return Simulator")
+st.title("📊 Binance.US Monte Carlo Return Simulator")
 
 # --- USER INPUT ---
-symbol_input = st.text_input("Enter Binance Symbol (e.g. BTC/USDT, ETH/USDT)", "BTC/USDT").upper().strip()
+symbol_input = st.text_input("Enter Symbol (e.g. BTC/USDT, ETH/USDT)", "BTC/USDT").upper().strip()
 holding_days = st.slider("Holding Period (days)", 10, 180, 60)
 simulations = st.number_input("Number of Simulations", min_value=1000, max_value=100000, value=5000, step=1000)
 
-binance = ccxt.binance()
+binance = ccxt.binanceus()
 
 @st.cache_data(show_spinner=False)
-def get_binance_data(symbol):
+def get_binanceus_data(symbol):
     try:
         since = binance.parse8601((datetime.utcnow() - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S"))
         ohlcv = binance.fetch_ohlcv(symbol, timeframe='1d', since=since)
@@ -58,25 +58,38 @@ def get_binance_data(symbol):
         st.error(f"Error fetching data: {e}")
         return pd.DataFrame()
 
+# Check symbol
+@st.cache_data
+def is_symbol_supported(symbol):
+    try:
+        markets = binance.load_markets()
+        return symbol in markets
+    except:
+        return False
+
 if not symbol_input:
-    st.warning("Please enter a Binance symbol like BTC/USDT")
+    st.warning("Please enter a symbol like BTC/USDT")
     st.stop()
 
-st.write(f"⏳ Fetching 1 year of daily data for {symbol_input} from Binance...")
-data = get_binance_data(symbol_input)
+if not is_symbol_supported(symbol_input):
+    st.error(f"❌ {symbol_input} is not supported on Binance.US.")
+    st.stop()
+
+st.write(f"⏳ Fetching 1 year of daily data for {symbol_input} from Binance.US...")
+data = get_binanceus_data(symbol_input)
 
 if data.empty or len(data) < 30:
-    st.error("❌ Not enough historical data found for this coin or invalid symbol. Try another one.")
+    st.error("❌ Not enough historical data found or invalid symbol. Try another one.")
     st.stop()
 
-st.write(f"✅ Data loaded: {len(data)} days of prices available.")
+st.success(f"✅ Loaded {len(data)} days of historical prices.")
 
 # --- MONTE CARLO SIMULATION ---
 returns = np.log(data['close'] / data['close'].shift(1)).dropna()
 mu, sigma = returns.mean(), returns.std()
 start_price = data['close'].iloc[-1]
 
-st.write(f"Running {simulations} Monte Carlo simulations for {holding_days} days holding period...")
+st.write(f"Running {simulations} Monte Carlo simulations for {holding_days} days...")
 progress = st.progress(0)
 
 results = []
@@ -141,7 +154,7 @@ ax2.set_xlabel("Price")
 ax2.set_ylabel("Frequency")
 st.pyplot(fig2)
 
-# --- ALERTS ---
+# --- SMART ALERTS ---
 st.markdown("## 🔔 Smart Alerts & Bias Detection")
 bias_alerts = []
 
