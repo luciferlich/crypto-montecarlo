@@ -1,99 +1,163 @@
 import streamlit as st
+import ccxt
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 from PIL import Image
-from pycoingecko import CoinGeckoAPI
 
-st.set_page_config(page_title="ADEX Crypto Simulator", layout="centered")
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Binance Crypto Simulator", layout="centered")
 
-# Header setup (logo + title)
+# --- HEADER STYLE ---
 st.markdown("""
 <style>
-.header-container { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 10px; }
-.big-title { font-size: 4rem; font-weight: 900; font-family: 'Arial Black', Gadget, sans-serif; color: #1F77B4; user-select: none; }
+    .header-container {
+        display: flex; align-items: center; justify-content: center;
+        gap: 20px; margin-bottom: 10px;
+    }
+    .big-title {
+        font-size: 4rem; font-weight: 900;
+        font-family: 'Arial Black', Gadget, sans-serif;
+        color: #1F77B4; user-select: none;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns([1,2,1])
+# --- HEADER CONTENT ---
+col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     try:
         logo = Image.open("logo.png")
         st.image(logo, width=80)
     except:
-        pass
+        st.write("")
 with col2:
     st.markdown('<div class="big-title">ADEX</div>', unsafe_allow_html=True)
 with col3:
     st.write("")
 
-st.title("📊 Monte Carlo Return Simulator (CoinGecko Data)")
+st.title("📊 Binance Monte Carlo Return Simulator")
 
-# --- Inputs ---
-symbol_input = st.text_input("Enter CoinGecko coin ID (e.g., bitcoin, ethereum)", "bitcoin").lower().strip()
+# --- USER INPUT ---
+symbol_input = st.text_input("Enter Binance Symbol (e.g. BTC/USDT, ETH/USDT)", "BTC/USDT").upper().strip()
 holding_days = st.slider("Holding Period (days)", 10, 180, 60)
-simulations = st.number_input("Number of Simulations", 1000, 50000, 5000, 1000)
+simulations = st.number_input("Number of Simulations", min_value=1000, max_value=100000, value=5000, step=1000)
 
-cg = CoinGeckoAPI()
+binance = ccxt.binance()
+
 @st.cache_data(show_spinner=False)
-def get_gecko_data(coin_id):
+def get_binance_data(symbol):
     try:
-        data = cg.get_coin_ohlc_by_id(id=coin_id, vs_currency='usd', days='365')
-        df = pd.DataFrame(data, columns=['timestamp','open','high','low','close'])
+        since = binance.parse8601((datetime.utcnow() - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S"))
+        ohlcv = binance.fetch_ohlcv(symbol, timeframe='1d', since=since)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
     except Exception as e:
-        st.error(f"Error fetching data from CoinGecko: {e}")
+        st.error(f"Error fetching data: {e}")
         return pd.DataFrame()
 
-st.write(f"⏳ Fetching 1 year of daily data for {symbol_input}...")
-data = get_gecko_data(symbol_input)
-if data.empty or len(data) < 30:
-    st.error("Not enough historical data—check the coin ID or try another.")
+if not symbol_input:
+    st.warning("Please enter a Binance symbol like BTC/USDT")
     st.stop()
-st.write(f"✅ Retrieved {len(data)} days of data.")
 
-# Compute log returns
+st.write(f"⏳ Fetching 1 year of daily data for {symbol_input} from Binance...")
+data = get_binance_data(symbol_input)
+
+if data.empty or len(data) < 30:
+    st.error("❌ Not enough historical data found for this coin or invalid symbol. Try another one.")
+    st.stop()
+
+st.write(f"✅ Data loaded: {len(data)} days of prices available.")
+
+# --- MONTE CARLO SIMULATION ---
 returns = np.log(data['close'] / data['close'].shift(1)).dropna()
 mu, sigma = returns.mean(), returns.std()
 start_price = data['close'].iloc[-1]
 
-# Run Monte Carlo
-st.write(f"Running {simulations} simulations for {holding_days} days...")
+st.write(f"Running {simulations} Monte Carlo simulations for {holding_days} days holding period...")
 progress = st.progress(0)
-results = []
-batch = 5000
 
-for i in range(0, simulations, batch):
-    n = min(batch, simulations - i)
-    Z = np.random.randn(n, holding_days)
-    daily = np.exp((mu - 0.5 * sigma**2) + sigma * Z)
-    P = start_price * daily.cumprod(axis=1)
-    results.extend(P[:, -1] / start_price - 1)
-    progress.progress((i + n) / simulations)
+results = []
+simulated_prices = []
+batch_size = 5000
+dt = 1
+
+for start in range(0, simulations, batch_size):
+    end = min(start + batch_size, simulations)
+    size = end - start
+    rand_matrix = np.random.normal(0, 1, size=(size, holding_days))
+    daily_returns = np.exp((mu - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * rand_matrix)
+    price_paths = start_price * daily_returns.cumprod(axis=1)
+    simulated_returns = price_paths[:, -1] / start_price - 1
+
+    results.extend(simulated_returns)
+    simulated_prices.append(price_paths)
+    progress.progress(end / simulations)
+
 progress.empty()
 
-# Metrics & histogram
-res = np.array(results)
-st.subheader("Results")
-c1, c2, c3 = st.columns(3)
-c1.metric("Exp. Return", f"{res.mean():.2%}")
-c2.metric("Std Dev", f"{res.std():.2%}")
-c3.metric("Chance Gain", f"{(res > 0).mean() * 100:.1f}%")
+results = np.array(results)
+simulated_prices = np.vstack(simulated_prices)
 
+# --- METRICS ---
+st.subheader(f"Results for {symbol_input}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Expected Return", f"{results.mean():.2%}")
+col2.metric("Risk (Std Dev)", f"{results.std():.2%}")
+col3.metric("Chance of Gain", f"{(results > 0).mean() * 100:.1f}%")
+
+# --- RETURN DISTRIBUTION PLOT ---
 fig, ax = plt.subplots()
-ax.hist(res, bins=100, color='skyblue', edgecolor='black')
+ax.hist(results, bins=100, color='skyblue', edgecolor='black')
+r5, r95 = np.percentile(results, [5, 95])
+ax.axvline(r5, color='red', linestyle='--', label='5th percentile')
+ax.axvline(r95, color='green', linestyle='--', label='95th percentile')
+ax.set_title(f"Simulated Return Distribution for {symbol_input}")
+ax.set_xlabel("Return")
+ax.set_ylabel("Frequency")
+ax.legend()
 st.pyplot(fig)
 
-# Price projections
-prices = start_price * (1 + res)
+# --- PRICE PROJECTION ---
+prices = start_price * (1 + results)
+expected_price = prices.mean()
+price_std = prices.std()
+p5, p95 = np.percentile(prices, [5, 95])
+
 st.subheader(f"Price Projection after {holding_days} days")
-c4, c5, c6 = st.columns(3)
-c4.metric("Expected Price", f"${prices.mean():,.2f}")
-c5.metric("5th Percentile", f"${np.percentile(prices,5):,.2f}")
-c6.metric("95th Percentile", f"${np.percentile(prices,95):,.2f}")
+c1, c2, c3 = st.columns(3)
+c1.metric("Expected Price", f"${expected_price:,.2f}")
+c2.metric("5th Percentile", f"${p5:,.2f}")
+c3.metric("95th Percentile", f"${p95:,.2f}")
 
 fig2, ax2 = plt.subplots()
 ax2.hist(prices, bins=100, color='lightgreen', edgecolor='black')
+ax2.axvline(p5, color='red', linestyle='--')
+ax2.axvline(p95, color='green', linestyle='--')
+ax2.set_title("Simulated Price Distribution")
+ax2.set_xlabel("Price")
+ax2.set_ylabel("Frequency")
 st.pyplot(fig2)
+
+# --- ALERTS ---
+st.markdown("## 🔔 Smart Alerts & Bias Detection")
+bias_alerts = []
+
+if holding_days >= 2:
+    median_day_2 = np.median(simulated_prices[:, 1])
+    if median_day_2 < start_price:
+        bias_alerts.append("⚠️ Expected drop in 2 days — consider rebalancing.")
+
+if holding_days >= 10:
+    day10 = simulated_prices[:, 9]
+    upside_prob = (day10 > start_price * 1.15).mean()
+    if upside_prob > 0.5:
+        bias_alerts.append(f"🚀 Simulated upside of +15% over 10 days for {symbol_input} with {upside_prob:.0%} probability.")
+
+if bias_alerts:
+    for alert in bias_alerts:
+        st.warning(alert)
+else:
+    st.info("✅ No significant alert detected.")
