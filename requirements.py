@@ -1,5 +1,5 @@
 streamlit
-ccxt
-numpy
 pandas
+numpy
 matplotlib
+ccxt
