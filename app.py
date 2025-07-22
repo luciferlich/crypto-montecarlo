@@ -97,26 +97,3 @@ c6.metric("95th Percentile", f"${np.percentile(prices,95):,.2f}")
 fig2, ax2 = plt.subplots()
 ax2.hist(prices, bins=100, color='lightgreen', edgecolor='black')
 st.pyplot(fig2)
-
-# --- Custom Alerts & Bias ---
-st.markdown("## 🔔 Smart Alerts & Bias Detection")
-
-# Detect upcoming expected drop
-median_price_day_2 = np.median(simulated_prices[:, 1]) if holding_days >= 2 else None
-bias_alerts = []
-
-if median_price_day_2 and median_price_day_2 < start_price:
-    bias_alerts.append("⚠️ Expected drop in 2 days — consider rebalancing.")
-
-# Detect strong upside in next 10 days (if applicable)
-if holding_days >= 10:
-    price_day_10 = simulated_prices[:, 9]  # Day 10 is index 9
-    upside_prob = (price_day_10 > start_price * 1.15).mean()  # 15% upside
-    if upside_prob > 0.5:
-        bias_alerts.append(f"🚀 Simulated upside of **+15%** over 10 days for {symbol_input} with {upside_prob:.0%} probability.")
-
-if not bias_alerts:
-    st.info("✅ No significant alert detected based on current simulation.")
-else:
-    for alert in bias_alerts:
-        st.warning(alert)
