@@ -153,6 +153,21 @@ col1.metric("Expected Return", f"{expected_return:.2%}")
 col2.metric("Risk (Std Dev)", f"{std_dev:.2%}")
 col3.metric("Chance of Gain", f"{prob_gain * 100:.1f}%")
 
+# Show probabilistic price forecast with adaptive decimal formatting
+percentiles = [10, 25, 40, 50, 60, 75, 90]
+price_percentiles = np.percentile(simulated_prices[:, -1], percentiles)
+
+decimal_places = 2 if start_price < 20 else 0
+price_format = f"{{:,.{decimal_places}f}}"
+
+prob_summary = f"### 📊 Price Prediction Probabilities after {holding_days} days:\n\n"
+for p, price in zip(percentiles, price_percentiles):
+    prob = 100 - p  # probability price >= this percentile price
+    formatted_price = price_format.format(price)
+    prob_summary += f"- Price ≥ **${formatted_price}** with **{prob}%** probability\n"
+
+st.markdown(prob_summary)
+
 # Plot histogram of returns
 fig, ax = plt.subplots()
 ax.hist(results, bins=100, color='skyblue', edgecolor='black')
